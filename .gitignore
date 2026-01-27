@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+
+# macOS
+.DS_Store
+
+# Runtime data
+data/captures/*
+data/logs/*
+
+# Editors
+.vscode/
+.idea/

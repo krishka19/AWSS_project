@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AWSS Control Room</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="bg"></div>
+  <div class="grid"></div>
+
+  <!-- HEADER -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">⚙️</div>
+      <div class="brand-text">
+        <div class="brand-title">AWSS Control Room</div>
+        <div class="brand-subtitle">IR Sensor • Camera • HSV Classification</div>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <div class="status-pill" id="statusPill">
+        <span class="dot"></span>
+        <span id="statusText">STOPPED</span>
+      </div>
+
+      <div class="header-actions">
+        <button class="btn btn-primary" id="startBtn">Start</button>
+        <button class="btn btn-ghost" id="stopBtn">Stop</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- LEFT: SYSTEM STATE -->
+    <section class="card panel">
+      <div class="card-head">
+        <h2>System State</h2>
+        <span class="tag" id="uptimeTag">uptime 00:00</span>
+      </div>
+
+      <div class="state-list">
+        <div class="state-row">
+          <div class="label">Camera</div>
+          <div class="value"><span class="mini-dot ok"></span><span id="camState">Ready</span></div>
+        </div>
+        <div class="state-row">
+          <div class="label">Sensor</div>
+          <div class="value"><span class="mini-dot ok"></span><span id="sensorState">Active</span></div>
+        </div>
+        <div class="state-row">
+          <div class="label">Processing</div>
+          <div class="value"><span class="mini-dot idle"></span><span id="procState">Idle</span></div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="hint">
+        <div class="hint-title">Operator Notes</div>
+        <div class="hint-text">
+          Start the system, then watch the vision feed and bin highlight. Each detection is logged below in the timeline.
+        </div>
+      </div>
+    </section>
+
+    <!-- CENTER: LIVE VISION FEED -->
+    <section class="card hero">
+      <div class="card-head">
+        <h2>Live Vision Feed</h2>
+        <span class="tag" id="lastSeenTag">waiting…</span>
+      </div>
+
+      <div class="vision">
+        <img id="visionImg" alt="Latest capture" />
+        <div class="vision-overlay">
+          <div class="scanline"></div>
+          <div class="reticle">
+            <span></span><span></span><span></span><span></span>
+          </div>
+          <div class="overlay-top">
+            <div class="badge" id="visionMode">STANDBY</div>
+            <div class="badge ghost" id="visionTime">—</div>
+          </div>
+          <div class="overlay-bottom">
+            <div class="class-pill" id="classPill">
+              <span class="class-icon" id="classIcon">⏳</span>
+              <span class="class-text" id="classText">Awaiting Bag</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: SMART BINS -->
+    <section class="card bins">
+      <div class="card-head">
+        <h2>Smart Bins</h2>
+        <span class="tag">decision output</span>
+      </div>
+
+      <div class="bin-grid">
+        <div class="bin" data-bin="RECYCLING">
+          <div class="bin-top"></div>
+          <div class="bin-body">
+            <div class="bin-icon">♻️</div>
+            <div class="bin-name">Recycling</div>
+            <div class="bin-sub">paper • plastic • glass</div>
+          </div>
+        </div>
+
+        <div class="bin" data-bin="COMPOST">
+          <div class="bin-top"></div>
+          <div class="bin-body">
+            <div class="bin-icon">🌱</div>
+            <div class="bin-name">Compost</div>
+            <div class="bin-sub">organic • food waste</div>
+          </div>
+        </div>
+
+        <div class="bin" data-bin="GARBAGE">
+          <div class="bin-top"></div>
+          <div class="bin-body">
+            <div class="bin-icon">🗑️</div>
+            <div class="bin-name">Garbage</div>
+            <div class="bin-sub">mixed • non-recyclable</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Confidence gauge -->
+      <div class="gauge">
+        <div class="gauge-label">
+          <span>Confidence</span>
+          <span id="confText">—%</span>
+        </div>
+        <div class="gauge-bar">
+          <div class="gauge-fill" id="confFill"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FULL WIDTH: LAST DETECTION -->
+    <section class="card wide">
+      <div class="card-head">
+        <h2>Last Detection</h2>
+        <span class="tag" id="lastTag">—</span>
+      </div>
+
+      <div class="detect-grid">
+        <div class="detect-main">
+          <div class="big-cat" id="bigCategory">—</div>
+          <div class="reason" id="bigReason">No detection yet.</div>
+        </div>
+
+        <div class="detect-metrics">
+          <div class="mini-metric">
+            <div class="mini-label">Confidence</div>
+            <div class="mini-value" id="miniConfidence">—%</div>
+          </div>
+          <div class="mini-metric">
+            <div class="mini-label">Timestamp</div>
+            <div class="mini-value" id="miniTime">—</div>
+          </div>
+          <div class="mini-metric">
+            <div class="mini-label">Image</div>
+            <div class="mini-value" id="miniImage">—</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FULL WIDTH: EVENT TIMELINE -->
+    <section class="card wide">
+      <div class="card-head">
+        <h2>Event Timeline</h2>
+        <span class="tag">last 20</span>
+      </div>
+
+      <div class="timeline" id="timeline"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
