@@ -23,7 +23,8 @@ STATE = {
     "startedAt": None,
     "last": None,        # latest detection (dict)
     "history": [],       # list of detections
-    "lastImagePath": None
+    "lastImagePath": None,
+    "lastError": None
 }
 MAX_HISTORY = 20
 
@@ -32,6 +33,25 @@ def _push_history(item: dict):
     STATE["history"].insert(0, item)
     if len(STATE["history"]) > MAX_HISTORY:
         STATE["history"] = STATE["history"][:MAX_HISTORY]
+
+
+def _safe_ir_clear_wait(ir_sensor, timeout_s=2.0):
+    """
+    Optional: if real sensor supports is_broken(), wait for beam to clear.
+    If not supported, just return quickly.
+    """
+    if not hasattr(ir_sensor, "is_broken"):
+        return
+
+    t0 = time.time()
+    try:
+        while ir_sensor.is_broken():
+            if time.time() - t0 > timeout_s:
+                break
+            time.sleep(0.05)
+    except Exception:
+        # If sensor errors, don't kill the loop
+        return
 
 
 def worker_loop():
@@ -47,7 +67,13 @@ def worker_loop():
                 break
 
         # Wait for a bag (blocking call)
-        system.ir_sensor.wait_for_bag()
+        try:
+            system.ir_sensor.wait_for_bag()
+        except Exception as e:
+            with lock:
+                STATE["lastError"] = f"IR sensor error: {e}"
+            time.sleep(0.2)
+            continue
 
         with lock:
             if not STATE["running"]:
@@ -55,26 +81,23 @@ def worker_loop():
 
         # Process bag (capture image + classify)
         try:
-            result = system.process_bag()  # your function already captures/saves image + returns result dict
+            result = system.process_bag()  # returns dict with image_path + image_filename (from our fixed final.py)
 
-            # Find latest image path from your results_log (more detailed than result)
-            image_path = None
-            if getattr(system, "results_log", None):
-                image_path = system.results_log[-1].get("image_path")
+            image_path = (result or {}).get("image_path")
 
             payload = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": (result or {}).get("timestamp", datetime.now().isoformat()),
                 "category": (result or {}).get("category", "UNKNOWN"),
-                "color": (result or {}).get("color", "unknown"),
-                "confidence": float((result or {}).get("confidence", 0)),
+                "confidence": float((result or {}).get("confidence", 0.0)),
                 "reason": (result or {}).get("reason", ""),
-                "hsv": (result or {}).get("hsv", None),
-                "image_path": image_path
+                "image_path": image_path,
+                "image_filename": (result or {}).get("image_filename"),
             }
 
             with lock:
                 STATE["last"] = payload
                 STATE["lastImagePath"] = image_path
+                STATE["lastError"] = None
                 _push_history(payload)
 
         except Exception as e:
@@ -82,23 +105,18 @@ def worker_loop():
                 payload = {
                     "timestamp": datetime.now().isoformat(),
                     "category": "ERROR",
-                    "color": "error",
                     "confidence": 0.0,
                     "reason": str(e),
-                    "hsv": None,
-                    "image_path": None
+                    "image_path": None,
+                    "image_filename": None,
                 }
                 STATE["last"] = payload
+                STATE["lastError"] = str(e)
                 _push_history(payload)
 
-        # Cooldown similar to your run()
-        # wait for beam to clear, then short delay before next detection
-        try:
-            while system.ir_sensor.is_broken():
-                time.sleep(0.05)
-            time.sleep(1.0)
-        except Exception:
-            pass
+        # Cooldown: wait for beam clear if supported, then short delay
+        _safe_ir_clear_wait(system.ir_sensor, timeout_s=2.0)
+        time.sleep(0.5)
 
 
 @app.route("/api/start", methods=["POST"])
@@ -117,6 +135,7 @@ def api_start():
         STATE["last"] = None
         STATE["history"] = []
         STATE["lastImagePath"] = None
+        STATE["lastError"] = None
 
     worker_thread = threading.Thread(target=worker_loop, daemon=True)
     worker_thread.start()
@@ -151,7 +170,8 @@ def api_status():
             "startedAt": STATE["startedAt"],
             "last": STATE["last"],
             "history": STATE["history"],
-            "lastImagePath": STATE["lastImagePath"]
+            "lastImagePath": STATE["lastImagePath"],
+            "lastError": STATE["lastError"],
         })
 
 
@@ -163,26 +183,24 @@ def latest_image():
     if not p:
         return ("No image yet", 404)
 
-    # Your final.py saves relative paths like "captures/images/..."
+    # final.py saves relative paths like "data/captures/bag_....jpg"
     abs_path = p if os.path.isabs(p) else os.path.join(BASE_DIR, p)
 
     if not os.path.exists(abs_path):
         return ("Image not found", 404)
 
+    # conditional=False so browser always gets file (you can also cache-bust in JS)
     return send_file(abs_path, mimetype="image/jpeg", conditional=False)
 
 
 @app.route("/")
 def home():
-    # If you already have your capstone UI in web/templates/index.html, keep it.
-    # This returns a simple message so you can confirm server is up even without templates.
     return """
     <h2>AWSS Web Server is running.</h2>
-    <p>If you have the UI files in web/templates + web/static, open the dashboard route instead.</p>
     <p>Try: <a href="/api/status">/api/status</a></p>
+    <p>Try: <a href="/latest-image">/latest-image</a></p>
     """
 
 
 if __name__ == "__main__":
-    # Use 5050 (safe on macOS, also fine on Pi)
     app.run(host="0.0.0.0", port=5050, debug=False)
