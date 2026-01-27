@@ -4,7 +4,7 @@ import sys
 import threading
 import time
 from datetime import datetime
-from flask import Flask, jsonify, send_file
+from flask import Flask, jsonify, send_file, render_template, send_from_directory
 
 # Allow importing final.py from project root
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -12,7 +12,8 @@ sys.path.insert(0, BASE_DIR)
 
 from final import AWSSSystem  # uses your existing hardware + CV logic
 
-app = Flask(__name__)
+# IMPORTANT: point Flask to web/templates and web/static
+app = Flask(__name__, template_folder="templates", static_folder="static")
 
 system = None
 worker_thread = None
@@ -50,7 +51,6 @@ def _safe_ir_clear_wait(ir_sensor, timeout_s=2.0):
                 break
             time.sleep(0.05)
     except Exception:
-        # If sensor errors, don't kill the loop
         return
 
 
@@ -81,7 +81,7 @@ def worker_loop():
 
         # Process bag (capture image + classify)
         try:
-            result = system.process_bag()  # returns dict with image_path + image_filename (from our fixed final.py)
+            result = system.process_bag()
 
             image_path = (result or {}).get("image_path")
 
@@ -152,7 +152,6 @@ def api_stop():
             return jsonify({"ok": True, "message": "Already stopped"}), 200
         STATE["running"] = False
 
-    # Stop hardware safely
     try:
         if system:
             system.stop()
@@ -175,6 +174,7 @@ def api_status():
         })
 
 
+# Latest image (most recent capture)
 @app.route("/latest-image")
 def latest_image():
     with lock:
@@ -183,24 +183,26 @@ def latest_image():
     if not p:
         return ("No image yet", 404)
 
-    # final.py saves relative paths like "data/captures/bag_....jpg"
     abs_path = p if os.path.isabs(p) else os.path.join(BASE_DIR, p)
-
     if not os.path.exists(abs_path):
         return ("Image not found", 404)
 
-    # conditional=False so browser always gets file (you can also cache-bust in JS)
     return send_file(abs_path, mimetype="image/jpeg", conditional=False)
 
 
+# Optional: serve a specific image by filename (helps frontend use image_filename)
+@app.route("/latest-image/<filename>")
+def latest_image_by_name(filename):
+    capture_dir = os.path.join(BASE_DIR, "data", "captures")
+    return send_from_directory(capture_dir, filename)
+
+
+# ✅ Serve the real dashboard UI
 @app.route("/")
 def home():
-    return """
-    <h2>AWSS Web Server is running.</h2>
-    <p>Try: <a href="/api/status">/api/status</a></p>
-    <p>Try: <a href="/latest-image">/latest-image</a></p>
-    """
+    return render_template("index.html")
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5050, debug=False)
+
