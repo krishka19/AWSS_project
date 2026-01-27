@@ -4,6 +4,7 @@ import sys
 import threading
 import time
 from datetime import datetime
+
 from flask import Flask, jsonify, send_file, render_template, send_from_directory
 
 # Allow importing final.py from project root
@@ -65,10 +66,15 @@ def worker_loop():
         with lock:
             if not STATE["running"]:
                 break
+            local_system = system  # snapshot pointer
+
+        if not local_system:
+            time.sleep(0.1)
+            continue
 
         # Wait for a bag (blocking call)
         try:
-            system.ir_sensor.wait_for_bag()
+            local_system.ir_sensor.wait_for_bag()
         except Exception as e:
             with lock:
                 STATE["lastError"] = f"IR sensor error: {e}"
@@ -78,10 +84,15 @@ def worker_loop():
         with lock:
             if not STATE["running"]:
                 break
+            # system could have been swapped during stop/start, re-snapshot
+            local_system = system
+
+        if not local_system:
+            continue
 
         # Process bag (capture image + classify)
         try:
-            result = system.process_bag()
+            result = local_system.process_bag()
 
             image_path = (result or {}).get("image_path")
 
@@ -115,21 +126,70 @@ def worker_loop():
                 _push_history(payload)
 
         # Cooldown: wait for beam clear if supported, then short delay
-        _safe_ir_clear_wait(system.ir_sensor, timeout_s=2.0)
+        try:
+            _safe_ir_clear_wait(local_system.ir_sensor, timeout_s=2.0)
+        except Exception:
+            pass
         time.sleep(0.5)
 
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
+    """
+    Robust start:
+    - If an old system exists, stop it first (prevents camera 'busy')
+    - Retry camera acquire a few times (camera can take a moment to release)
+    """
     global system, worker_thread
 
     with lock:
         if STATE["running"]:
             return jsonify({"ok": True, "message": "Already running"}), 200
 
-        system = AWSSSystem(delay_after_trigger=1.0)
-        system.start()
+        # Detach old instance (stop outside lock)
+        old = system
+        system = None
+        STATE["lastError"] = None
 
+    if old:
+        try:
+            old.stop()
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+    last_err = None
+    new_system = None
+
+    for _ in range(5):
+        try:
+            new_system = AWSSSystem(delay_after_trigger=1.0)
+            new_system.start()
+            last_err = None
+            break
+        except Exception as e:
+            last_err = str(e)
+            # ensure partial init releases resources
+            try:
+                if new_system:
+                    new_system.stop()
+            except Exception:
+                pass
+            new_system = None
+            time.sleep(0.6)
+
+    if last_err:
+        with lock:
+            STATE["running"] = False
+            STATE["startedAt"] = None
+            STATE["last"] = None
+            STATE["history"] = []
+            STATE["lastImagePath"] = None
+            STATE["lastError"] = f"Start failed: {last_err}"
+        return jsonify({"ok": False, "message": f"Start failed: {last_err}"}), 500
+
+    with lock:
+        system = new_system
         STATE["running"] = True
         STATE["startedAt"] = datetime.now().isoformat()
         STATE["last"] = None
@@ -150,11 +210,15 @@ def api_stop():
     with lock:
         if not STATE["running"]:
             return jsonify({"ok": True, "message": "Already stopped"}), 200
-        STATE["running"] = False
 
+        STATE["running"] = False
+        old = system
+        system = None
+
+    # Stop hardware safely (outside lock)
     try:
-        if system:
-            system.stop()
+        if old:
+            old.stop()
     except Exception:
         pass
 
@@ -190,14 +254,14 @@ def latest_image():
     return send_file(abs_path, mimetype="image/jpeg", conditional=False)
 
 
-# Optional: serve a specific image by filename (helps frontend use image_filename)
+# Serve a specific image by filename (frontend uses image_filename)
 @app.route("/latest-image/<filename>")
 def latest_image_by_name(filename):
     capture_dir = os.path.join(BASE_DIR, "data", "captures")
     return send_from_directory(capture_dir, filename)
 
 
-# ✅ Serve the real dashboard UI
+# Serve the real dashboard UI
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -205,4 +269,3 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5050, debug=False)
-
