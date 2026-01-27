@@ -35,6 +35,28 @@ const els = {
 
 let startedAtISO = null;
 
+// If your HTML has an element for errors, we’ll use it.
+// If not, we’ll just print to console without breaking UI.
+const errorEl =
+  document.getElementById("errorBox") ||
+  document.getElementById("errorText") ||
+  null;
+
+function showError(msg) {
+  if (!msg) {
+    if (errorEl) {
+      errorEl.style.display = "none";
+      errorEl.textContent = "";
+    }
+    return;
+  }
+  console.error("AWSS error:", msg);
+  if (errorEl) {
+    errorEl.style.display = "block";
+    errorEl.textContent = msg;
+  }
+}
+
 function fmtTime(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -71,9 +93,7 @@ function highlightBin(category) {
   clearBinHighlights();
   if (!category) return;
   const bin = document.querySelector(`.bin[data-bin="${category}"]`);
-  if (bin) {
-    bin.classList.add("active");
-  }
+  if (bin) bin.classList.add("active");
 }
 
 function categoryIcon(category) {
@@ -90,6 +110,33 @@ function eventBarColor(category) {
   if (category === "GARBAGE") return "rgba(184,188,199,.95)";
   if (category === "ERROR") return "rgba(255,94,138,.95)";
   return "rgba(106,168,255,.9)";
+}
+
+// Normalize confidence to 0..100 regardless of whether backend sends 0.87 or 87
+function confToPct(conf) {
+  if (conf == null) return 0;
+  const n = Number(conf);
+  if (!Number.isFinite(n)) return 0;
+  if (n <= 1) return Math.round(n * 100);
+  return Math.round(n);
+}
+
+// Build image URL using filename if available (best), else fallback to /latest-image
+function imageUrlFromLast(last) {
+  if (!last) return null;
+
+  // If backend includes filename, you can use /latest-image/<filename>
+  // Only if you added that endpoint. If not, we'll still use /latest-image.
+  if (last.image_filename) {
+    return `/latest-image/${encodeURIComponent(last.image_filename)}?ts=${Date.now()}`;
+  }
+
+  // Fallback: your current backend provides /latest-image (latest only)
+  if (last.image_path) {
+    return `/latest-image?ts=${Date.now()}`;
+  }
+
+  return null;
 }
 
 function updateDetection(last) {
@@ -110,7 +157,7 @@ function updateDetection(last) {
   }
 
   const cat = last.category || "UNKNOWN";
-  const conf = Math.round((last.confidence || 0) * 100);
+  const conf = confToPct(last.confidence);
   const reason = last.reason || "—";
   const ts = last.timestamp || null;
 
@@ -121,7 +168,7 @@ function updateDetection(last) {
 
   els.miniConfidence.textContent = `${conf}%`;
   els.miniTime.textContent = fmtTime(ts);
-  els.miniImage.textContent = last.image_path ? "Available" : "—";
+  els.miniImage.textContent = (last.image_path || last.image_filename) ? "Available" : "—";
 
   els.classIcon.textContent = categoryIcon(cat);
   els.classText.textContent = cat;
@@ -135,9 +182,8 @@ function updateDetection(last) {
   els.visionTime.textContent = ts ? fmtTime(ts) : "—";
 
   // refresh image (cache-bust)
-  if (last.image_path) {
-    els.visionImg.src = `/latest-image?ts=${Date.now()}`;
-  }
+  const url = imageUrlFromLast(last);
+  if (url) els.visionImg.src = url;
 }
 
 function renderTimeline(history) {
@@ -162,7 +208,7 @@ function renderTimeline(history) {
 
   history.forEach(item => {
     const cat = item.category || "UNKNOWN";
-    const conf = Math.round((item.confidence || 0) * 100);
+    const conf = confToPct(item.confidence);
     const ts = item.timestamp || null;
 
     const el = document.createElement("div");
@@ -183,40 +229,63 @@ function renderTimeline(history) {
 }
 
 async function apiPost(url) {
-  await fetch(url, { method: "POST" });
+  const res = await fetch(url, { method: "POST" });
+  // Keep from silently failing:
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`POST ${url} failed: ${res.status} ${t}`);
+  }
 }
 
 async function refresh() {
-  const res = await fetch("/api/status");
-  const data = await res.json();
+  let data;
+  try {
+    const res = await fetch("/api/status");
+    data = await res.json();
+  } catch (e) {
+    showError(`Status fetch failed: ${e}`);
+    return;
+  }
+
+  // show any backend error
+  showError(data.lastError || null);
 
   // running state
   setRunningUI(!!data.running);
 
-  // startedAt for uptime if your API has it. If not, we still show uptime based on "first time running"
+  // uptime logic
   if (data.startedAt) startedAtISO = data.startedAt;
   if (!startedAtISO && data.running) startedAtISO = new Date().toISOString();
   if (!data.running) startedAtISO = null;
-
   els.uptimeTag.textContent = fmtUptime(startedAtISO);
 
-  // detection + timeline
+  // detection + timeline (backend returns last/history)
   updateDetection(data.last);
   renderTimeline(data.history || []);
 }
 
 els.startBtn.addEventListener("click", async () => {
-  await apiPost("/api/start");
+  try {
+    await apiPost("/api/start");
+  } catch (e) {
+    showError(String(e));
+  }
   await refresh();
 });
 
 els.stopBtn.addEventListener("click", async () => {
-  await apiPost("/api/stop");
+  try {
+    await apiPost("/api/stop");
+  } catch (e) {
+    showError(String(e));
+  }
   await refresh();
 });
 
 // initial image placeholder so it doesn't look broken
-els.visionImg.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(`
+els.visionImg.src =
+  "data:image/svg+xml;charset=utf-8," +
+  encodeURIComponent(`
   <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700">
     <rect width="100%" height="100%" fill="rgba(7,10,18,0.25)"/>
     <text x="50%" y="50%" fill="rgba(159,176,214,0.8)" font-family="Arial" font-size="28" text-anchor="middle">
