@@ -1,3 +1,5 @@
+// web/static/app.js
+
 const els = {
   startBtn: document.getElementById("startBtn"),
   stopBtn: document.getElementById("stopBtn"),
@@ -31,6 +33,18 @@ const els = {
   lastTag: document.getElementById("lastTag"),
 
   timeline: document.getElementById("timeline"),
+
+  // ✅ NEW (Live Readout section)
+  liveCategory: document.getElementById("liveCategory"),
+  liveConfidence: document.getElementById("liveConfidence"),
+  liveColor: document.getElementById("liveColor"),
+  liveHSV: document.getElementById("liveHSV"),
+  liveReason: document.getElementById("liveReason"),
+
+  bagCount: document.getElementById("bagCount"),
+  irHealth: document.getElementById("irHealth"),
+  camHealth: document.getElementById("camHealth"),
+  lastError: document.getElementById("lastError"),
 };
 
 let startedAtISO = null;
@@ -43,6 +57,11 @@ const errorEl =
   null;
 
 function showError(msg) {
+  // Prefer the new Live Readout Last Error label if present
+  if (els.lastError) {
+    els.lastError.textContent = msg ? `⚠ ${msg}` : "None";
+  }
+
   if (!msg) {
     if (errorEl) {
       errorEl.style.display = "none";
@@ -80,9 +99,13 @@ function setRunningUI(isRunning) {
   els.visionMode.textContent = isRunning ? "SCANNING" : "STANDBY";
   els.procState.textContent = isRunning ? "Running" : "Idle";
 
-  // dots: camera/sensor always shown as ready for demo
+  // dots: camera/sensor shown as ready for demo
   els.camState.textContent = "Ready";
   els.sensorState.textContent = isRunning ? "Active" : "Idle";
+
+  // Live Readout health
+  if (els.irHealth) els.irHealth.textContent = isRunning ? "Active" : "Idle";
+  if (els.camHealth) els.camHealth.textContent = "Ready";
 }
 
 function clearBinHighlights() {
@@ -125,18 +148,50 @@ function confToPct(conf) {
 function imageUrlFromLast(last) {
   if (!last) return null;
 
-  // If backend includes filename, you can use /latest-image/<filename>
-  // Only if you added that endpoint. If not, we'll still use /latest-image.
+  // If backend includes filename, use /latest-image/<filename>
   if (last.image_filename) {
     return `/latest-image/${encodeURIComponent(last.image_filename)}?ts=${Date.now()}`;
   }
 
-  // Fallback: your current backend provides /latest-image (latest only)
+  // Fallback: backend provides /latest-image (latest only)
   if (last.image_path) {
     return `/latest-image?ts=${Date.now()}`;
   }
 
   return null;
+}
+
+function formatHSV(hsv) {
+  if (!hsv || typeof hsv !== "object") return "—";
+  const h = Number(hsv.h);
+  const s = Number(hsv.s);
+  const v = Number(hsv.v);
+  if (![h, s, v].every(Number.isFinite)) return "—";
+  return `H ${Math.round(h)} | S ${Math.round(s)} | V ${Math.round(v)}`;
+}
+
+function updateLiveReadout(last) {
+  if (!els.liveCategory) return; // section not present
+
+  if (!last) {
+    els.liveCategory.textContent = "—";
+    els.liveConfidence.textContent = "—";
+    els.liveColor.textContent = "—";
+    els.liveHSV.textContent = "—";
+    els.liveReason.textContent = "—";
+    return;
+  }
+
+  const cat = last.category || "UNKNOWN";
+  const conf = confToPct(last.confidence);
+  const color = last.color || "unknown";
+  const reason = last.reason || "—";
+
+  els.liveCategory.textContent = cat;
+  els.liveConfidence.textContent = `${conf}%`;
+  els.liveColor.textContent = color;
+  els.liveHSV.textContent = formatHSV(last.hsv);
+  els.liveReason.textContent = reason;
 }
 
 function updateDetection(last) {
@@ -152,7 +207,10 @@ function updateDetection(last) {
     els.classText.textContent = "Awaiting Bag";
     els.confText.textContent = "—%";
     els.confFill.style.width = "0%";
+    els.visionTime.textContent = "—";
     highlightBin(null);
+
+    updateLiveReadout(null);
     return;
   }
 
@@ -184,6 +242,9 @@ function updateDetection(last) {
   // refresh image (cache-bust)
   const url = imageUrlFromLast(last);
   if (url) els.visionImg.src = url;
+
+  // ✅ update new readout panel
+  updateLiveReadout(last);
 }
 
 function renderTimeline(history) {
@@ -259,6 +320,12 @@ async function refresh() {
   if (!data.running) startedAtISO = null;
   els.uptimeTag.textContent = fmtUptime(startedAtISO);
 
+  // ✅ Bag count (from backend)
+  if (els.bagCount) {
+    const count = (data && typeof data.bagCount === "number") ? data.bagCount : (data.history?.length || 0);
+    els.bagCount.textContent = String(count);
+  }
+
   // detection + timeline (backend returns last/history)
   updateDetection(data.last);
   renderTimeline(data.history || []);
@@ -296,3 +363,4 @@ els.visionImg.src =
 
 refresh();
 setInterval(refresh, 1000);
+
