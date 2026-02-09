@@ -26,7 +26,8 @@ STATE = {
     "last": None,        # latest detection (dict)
     "history": [],       # list of detections
     "lastImagePath": None,
-    "lastError": None
+    "lastError": None,
+    "bagCount": 0,       # total detections since start
 }
 MAX_HISTORY = 20
 
@@ -99,13 +100,18 @@ def worker_loop():
             payload = {
                 "timestamp": (result or {}).get("timestamp", datetime.now().isoformat()),
                 "category": (result or {}).get("category", "UNKNOWN"),
+                "color": (result or {}).get("color", "unknown"),
+                # final.py returns confidence in 0..100 (float). Keep it consistent.
                 "confidence": float((result or {}).get("confidence", 0.0)),
                 "reason": (result or {}).get("reason", ""),
+                "hsv": (result or {}).get("hsv", None),
+                "color_matches": (result or {}).get("color_matches", None),
                 "image_path": image_path,
                 "image_filename": (result or {}).get("image_filename"),
             }
 
             with lock:
+                STATE["bagCount"] += 1
                 STATE["last"] = payload
                 STATE["lastImagePath"] = image_path
                 STATE["lastError"] = None
@@ -116,8 +122,11 @@ def worker_loop():
                 payload = {
                     "timestamp": datetime.now().isoformat(),
                     "category": "ERROR",
+                    "color": "error",
                     "confidence": 0.0,
                     "reason": str(e),
+                    "hsv": None,
+                    "color_matches": None,
                     "image_path": None,
                     "image_filename": None,
                 }
@@ -186,6 +195,7 @@ def api_start():
             STATE["history"] = []
             STATE["lastImagePath"] = None
             STATE["lastError"] = f"Start failed: {last_err}"
+            STATE["bagCount"] = 0
         return jsonify({"ok": False, "message": f"Start failed: {last_err}"}), 500
 
     with lock:
@@ -196,6 +206,7 @@ def api_start():
         STATE["history"] = []
         STATE["lastImagePath"] = None
         STATE["lastError"] = None
+        STATE["bagCount"] = 0
 
     worker_thread = threading.Thread(target=worker_loop, daemon=True)
     worker_thread.start()
@@ -235,6 +246,7 @@ def api_status():
             "history": STATE["history"],
             "lastImagePath": STATE["lastImagePath"],
             "lastError": STATE["lastError"],
+            "bagCount": STATE["bagCount"],
         })
 
 
@@ -269,3 +281,4 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5050, debug=False)
+
