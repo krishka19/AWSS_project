@@ -48,7 +48,7 @@
         </div>
         <div class="state-row">
           <div class="label">Sensor</div>
-          <div class="value"><span class="mini-dot ok"></span><span id="sensorState">Active</span></div>
+          <div class="value"><span class="mini-dot ok"></span><span id="sensorState">Idle</span></div>
         </div>
         <div class="state-row">
           <div class="label">Processing</div>
@@ -144,6 +144,31 @@
       </div>
     </section>
 
+    <!-- ✅ NEW: FULL WIDTH — LIVE READOUT + HEALTH -->
+    <section class="card wide">
+      <div class="card-head">
+        <h2>Live Readout</h2>
+        <span class="tag">explainable decision</span>
+      </div>
+
+      <div class="readout-grid">
+        <div class="readout-panel">
+          <div class="kv"><span>Category</span><span id="liveCategory">—</span></div>
+          <div class="kv"><span>Confidence</span><span id="liveConfidence">—</span></div>
+          <div class="kv"><span>Detected Color</span><span id="liveColor">—</span></div>
+          <div class="kv"><span>HSV (avg)</span><span id="liveHSV">—</span></div>
+          <div class="kv"><span>Reason</span><span id="liveReason">—</span></div>
+        </div>
+
+        <div class="readout-panel">
+          <div class="kv"><span>Bag Count</span><span id="bagCount">0</span></div>
+          <div class="kv"><span>IR Sensor</span><span id="irHealth">—</span></div>
+          <div class="kv"><span>Camera</span><span id="camHealth">—</span></div>
+          <div class="kv"><span>Last Error</span><span id="lastError">—</span></div>
+        </div>
+      </div>
+    </section>
+
     <!-- FULL WIDTH: LAST DETECTION -->
     <section class="card wide">
       <div class="card-head">
@@ -188,3 +213,4 @@
   <script src="/static/app.js"></script>
 </body>
 </html>
+
