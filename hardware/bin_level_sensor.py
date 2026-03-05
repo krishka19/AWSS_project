@@ -2,11 +2,11 @@
 """
 BinLevelSensor — detects when a bin is full (e.g. ultrasonic, IR distance, weight).
 
-⚠️  STUB: Sensor type and GPIO pins not yet confirmed by hardware team.
+  STUB: Sensor type and GPIO pins not yet confirmed by hardware team.
     All methods log their intended action and return safe default values.
 
-TODO (hardware team):
-    - Confirm sensor type (HC-SR04 ultrasonic, VL53L0X ToF, load cell, etc.)
+TODO (hardware ):
+    - Confirm sensor type 
     - Set pin and bin_type values
     - Implement is_full() with real sensor reads
     - Define a "full" threshold for your chosen sensor

@@ -31,7 +31,7 @@ class AWSSSystem:
         # Hardware
         self.ir_sensor      = IRSensor(pin=ir_pin)
         self.camera         = Camera(resolution=(1920, 1080))
-        self.flap_controller = FlapController()
+        self.flap_controller = FlapController(servo_pin=None)  # TODO: set pin
 
         # One BinLevelSensor per bin (pins TBD — set to None until hardware confirmed)
         self.bin_sensors = [
@@ -78,6 +78,7 @@ class AWSSSystem:
         self.running = False
         self.camera.stop()
         self.ir_sensor.cleanup()
+        self.flap_controller.cleanup()
         self.notifier.notify_system_status("STOPPED")
         print("✓ System stopped")
 
